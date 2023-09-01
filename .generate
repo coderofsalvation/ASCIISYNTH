@@ -1,0 +1,6 @@
+#!/bin/sh 
+set -e
+mmark RFC_ASCIISYNTH.md         > RFC_ASCIISYNTH.xml 
+mmark --html RFC_ASCIISYNTH.md  > README.md
+xml2rfc --v3 RFC_ASCIISYNTH.xml # RFC_ASCIISYNTH.txt
+sed 's/<title>.*//g' -i README.md 

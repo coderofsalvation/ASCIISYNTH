@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- name="GENERATOR" content="github.com/mmarkdown/mmark Mmark Markdown Processor - mmark.miek.nl" -->
+<rfc version="3" ipr="trust200902" docName="draft-ASCIISYNTH-leonvankammen-00" submissionType="IETF" category="info" xml:lang="en" xmlns:xi="http://www.w3.org/2001/XInclude" indexInclude="true" consensus="true">
+
+<front>
+<title>ASCIISYNTH</title><seriesInfo value="draft-ASCIISYNTH-leonvankammen-00" stream="IETF" status="informational" name="ASCIISYNTH"></seriesInfo>
+<author initials="L.R." surname="van Kammen" fullname="L.R. van Kammen"><organization></organization><address><postal><street></street>
+</postal></address></author><date/>
+<area>Music</area>
+<workgroup>Music</workgroup>
+
+<abstract>
+<t>ASCIISYNTH is specification to (de)serialize synthesizer presets from/to ascii-strings which can be copy/pasted.
+The goal is twofold:</t>
+
+<ul spacing="compact">
+<li>offer file-agnostic ways of sharing presets (using chat or forums or LLVM's e.g.).</li>
+<li>offer a way for samplers to backup the synthparameters in the samplename, which generated the sample</li>
+</ul>
+</abstract>
+
+</front>
+
+<middle>
+
+<section anchor="what-is-asciisynth"><name>What is ASCIISYNTH</name>
+<t>&lt;img src=&quot;https://2wa.gitlab.io/asset/img/thumb_ASCIISYNTH.jpg&quot; style=&quot;max-width:400px&quot;/&gt;</t>
+<t>An ASCIISYNTH preset is basically a string like this:</t>
+<t><tt>FMX1.2!!C!!!23!!!!vf23lk2A</tt>
+<tt>GRANSYN2.12a4bcfeff00ac065a</tt></t>
+<t>It's format consist of the following sequence of tokens:</t>
+<t><tt>&lt;synth identifier&gt;&lt;version&gt;&lt;parametervalues_using_hex_or_chars&gt;</tt></t>
+<t>For example:</t>
+
+<ul spacing="compact">
+<li>synth ID: <tt>FMX</tt></li>
+<li>synth version: <tt>1.2</tt> (not mandatory but adviced)</li>
+<li>parameters: <tt>!!C!!!23!!!!vf23lk2A</tt></li>
+</ul>
+<blockquote><t>NOTE: the width of the Synth ID, Version, and parameters can be decided by the author.</t>
+</blockquote></section>
+
+<section anchor="workflow"><name>Workflow</name>
+
+<ul spacing="compact">
+<li>a user tweaks synthesizer/sampler parameters</li>
+<li>the parameters get encoded (to ASCIISYNTH)</li>
+<li>the ASCIISYNTH name becomes the sample/instrument/preset-name</li>
+<li>the software can now auto-initialize synth(parameters) by detecting supported ASCIISYNTH prefixes</li>
+</ul>
+</section>
+
+<section anchor="encoding-decoding-the-parameters"><name>Encoding/Decoding the parameters</name>
+<t>The Synth ID &amp; Version are very easy to detect, and are verbatim (de)serialized.
+The parameters however, are (de)serialized to their ascii decimal values.
+These decimal values are offset by <tt>33</tt> to keep the characters easy copy/paste-table (below decimal ascii-value 33 are unprintable characters).</t>
+
+<section anchor="example"><name>Example</name>
+<t><tt>FMX1.2!&quot;</tt></t>
+
+<ul spacing="compact">
+<li>synth ID: <tt>FMX</tt></li>
+<li>synth version: <tt>1.2</tt></li>
+<li>parameter 1: 0  (=<tt>!</tt>=ASCII decimal 33)</li>
+<li>parameter 2: 1  (=<tt>&quot;</tt>=ASCII decimal 34 )</li>
+</ul>
+</section>
+
+<section anchor="parameter-resolution"><name>Parameter resolution</name>
+<t>The resolution on how much characters the host-application can reserve for a sample/instrument/preset-name.</t>
+
+<ul spacing="compact">
+<li>Small (a samplename of 20 max chars e.g.): use max parameter resolution is 93 (range <tt>0..93</tt>) because of the ASCII requirement (126-33=93)</li>
+<li>Bigger: just use hexadecimal values (synth X version 1 with one parametervalue 16 (=hex 10) becomes string <tt>X110</tt> e.g.)</li>
+</ul>
+</section>
+</section>
+
+<section anchor="example-implementation"><name>Example implementation</name>
+<t>Milkytracker has ASCIISYNTH implemented, the gist is basically:</t>
+
+<artwork>#define SYN_PREFIX_V1 &quot;M1&quot;                 // samplename 'M&lt;version&gt;&lt;params&gt;' hints XM editors that sample was created with milkysynth &lt;version&gt; using &lt;params&gt; 
+#define SYN_PREFIX_V2 &quot;M2&quot;                 //
+#define SYN_PREFIX_CHARS 2                 // &quot;M*&quot;
+#define SYN_PARAMS_MAX 32-SYN_PREFIX_CHARS // max samplechars (32) minus &quot;M*&quot; (32-2=30)     
+#define SYN_OFFSET_CHAR 33                 // ASCIISYNTH spec: printable chars only 33..127 = 0..93 (allows ascii copy/paste of synthpresets)
+#define SYN_PARAM_MAX_VALUE 93             // 93 printable chars
+
+// handy macro to normalize ASCIISYNTH 0..93 range to 0..1 floats
+#define SYN_PARAM_NORMALIZE(x) (1.0f/(float)SYN_PARAM_MAX_VALUE)*x
+
+char* serialize() {
+  char str[SYN_PREFIX_CHARS+SYN_PARAMS_MAX];
+  sprintf(str,&quot;%s&quot;,SYN_PREFIX_V2);           // always bump this to latest version
+  for( int i = 0; i &lt; SYN_PARAMS_MAX ; i++ ){ 
+    str[ i + SYN_PREFIX_CHARS] = i &lt; synth-&gt;nparams ? (int)synth-&gt;param[i].value + SYN_OFFSET_CHAR : SYN_OFFSET_CHAR; 
+  }
+  printf(&quot;synth: '%s'\n&quot;,str);
+  return str;
+}
+
+bool deserialize( string preset ) {
+  if( preset.startsWith(SYN_PREFIX_V1) || preset.startsWith(SYN_PREFIX_V2) ){ // detect synth version(s) 
+    const char *str = preset.getStrBuffer();
+    int ID = str[ SYN_PREFIX_CHARS ] - SYN_OFFSET_CHAR; 
+    synth = &amp;(synths[ID]); // replace current synth &amp; initialize
+    for( int i = 0; i &lt; preset.length() &amp;&amp; i &lt; SYN_PARAMS_MAX; i++ ){ 
+       setParam(i, str[ i + SYN_PREFIX_CHARS ] - SYN_OFFSET_CHAR ); 
+    }
+    return true;
+  }else return false;
+}
+
+</artwork>
+</section>
+
+<section anchor="contact"><name>Contact</name>
+
+<ul spacing="compact">
+<li>leonvankammen|gmail.com</li>
+</ul>
+</section>
+
+<section anchor="iana-considerations"><name>IANA Considerations</name>
+<t>This document has no IANA actions.</t>
+</section>
+
+<section anchor="acknowledgments"><name>Acknowledgments</name>
+<t>TODO acknowledge.</t>
+</section>
+
+</middle>
+
+</rfc>
